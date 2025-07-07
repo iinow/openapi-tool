@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>Swagger Subset Generator</title>
+  <style>
+    body { font-family: sans-serif; padding: 1rem; }
+    .tag { margin-top: 1rem; }
+    .method { color: darkblue; font-weight: bold; }
+    .path { font-family: monospace; color: green; }
+    .btn-row { margin-bottom: 1rem; }
+    button { margin-right: 0.5rem; }
+  </style>
+</head>
+<body>
+  <h2>Swagger JSON 서브셋 생성기</h2>
+
+  <div class="btn-row">
+    <input type="file" id="fileInput" accept=".json">
+    <button onclick="selectAll(true)">전체 선택</button>
+    <button onclick="selectAll(false)">전체 해제</button>
+    <button onclick="generateSubset()">✅ 선택된 API로 Swagger 생성</button>
+  </div>
+
+  <div id="apiList"></div>
+
+  <script>
+    let fullSpec = null;
+    let apiMap = {}; // { tag: [ { path, method, operationId } ] }
+
+    document.getElementById('fileInput').addEventListener('change', async function () {
+      const file = this.files[0];
+      const text = await file.text();
+      fullSpec = JSON.parse(text);
+      buildApiList(fullSpec);
+    });
+
+    function buildApiList(spec) {
+      apiMap = {};
+      const container = document.getElementById('apiList');
+      container.innerHTML = '';
+
+      for (const path in spec.paths) {
+        for (const method in spec.paths[path]) {
+          const op = spec.paths[path][method];
+          const tags = op.tags || ['default'];
+          tags.forEach(tag => {
+            if (!apiMap[tag]) apiMap[tag] = [];
+            apiMap[tag].push({ path, method, operationId: op.operationId });
+          });
+        }
+      }
+
+      for (const tag in apiMap) {
+        const section = document.createElement('div');
+        section.className = 'tag';
+        section.innerHTML = `<h3>${tag}</h3>`;
+
+        apiMap[tag].forEach(api => {
+          const checkbox = `<input type="checkbox" class="api-checkbox" data-path="${api.path}" data-method="${api.method}">`;
+
+          section.innerHTML += `
+            <div>
+              ${checkbox}
+              <span class="method">${api.method.toUpperCase()}</span>
+              <span class="path">${api.path}</span>
+            </div>
+          `;
+        });
+
+        container.appendChild(section);
+      }
+    }
+
+    function generateSubset() {
+      if (!fullSpec) return alert('Swagger 파일을 먼저 업로드하세요.');
+
+      const checkboxes = document.querySelectorAll('.api-checkbox');
+      const selectedPaths = {};
+
+      checkboxes.forEach(cb => {
+        if (cb.checked) {
+          const path = cb.dataset.path;
+          const method = cb.dataset.method;
+          if (!selectedPaths[path]) selectedPaths[path] = {};
+          selectedPaths[path][method] = fullSpec.paths[path][method];
+        }
+      });
+
+      const subsetSpec = {
+        openapi: fullSpec.openapi,
+        info: fullSpec.info,
+        paths: selectedPaths,
+        components: {
+          schemas: fullSpec.components?.schemas || {}
+        }
+      };
+
+      const blob = new Blob([JSON.stringify(subsetSpec, null, 2)], { type: 'application/json' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'subset-swagger.json';
+      a.click();
+      URL.revokeObjectURL(a.href);
+    }
+
+    function selectAll(checked) {
+      document.querySelectorAll('.api-checkbox').forEach(cb => cb.checked = checked);
+    }
+  </script>
+</body>
+</html>
