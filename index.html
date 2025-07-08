@@ -9,7 +9,8 @@
     .method { color: darkblue; font-weight: bold; }
     .path { font-family: monospace; color: green; }
     .btn-row { margin-bottom: 1rem; }
-    button { margin-right: 0.5rem; }
+    button { margin-right: 0.5rem; margin-top: 0.5rem; }
+    input[type="text"] { padding: 4px; margin-right: 1rem; width: 300px; }
   </style>
 </head>
 <body>
@@ -17,6 +18,7 @@
 
   <div class="btn-row">
     <input type="file" id="fileInput" accept=".json">
+    <input type="text" id="domainInput" placeholder="예: https://api.example.com">
     <button onclick="selectAll(true)">전체 선택</button>
     <button onclick="selectAll(false)">전체 해제</button>
     <button onclick="generateSubset()">✅ 선택된 API로 Swagger 생성</button>
@@ -26,7 +28,7 @@
 
   <script>
     let fullSpec = null;
-    let apiMap = {}; // { tag: [ { path, method, operationId } ] }
+    let apiMap = {};
 
     document.getElementById('fileInput').addEventListener('change', async function () {
       const file = this.files[0];
@@ -72,27 +74,59 @@
       }
     }
 
+    function selectAll(checked) {
+      document.querySelectorAll('.api-checkbox').forEach(cb => cb.checked = checked);
+    }
+
     function generateSubset() {
       if (!fullSpec) return alert('Swagger 파일을 먼저 업로드하세요.');
 
+      const domain = document.getElementById('domainInput').value.trim();
+      if (!domain) return alert('도메인(서버 URL)을 입력해주세요.');
+
       const checkboxes = document.querySelectorAll('.api-checkbox');
       const selectedPaths = {};
+      const usedRefs = new Set();
 
       checkboxes.forEach(cb => {
         if (cb.checked) {
           const path = cb.dataset.path;
           const method = cb.dataset.method;
+          const op = fullSpec.paths[path][method];
+
           if (!selectedPaths[path]) selectedPaths[path] = {};
-          selectedPaths[path][method] = fullSpec.paths[path][method];
+          selectedPaths[path][method] = op;
+
+          collectRefsFromOperation(op, usedRefs);
         }
+      });
+
+      const allSchemas = fullSpec.components?.schemas || {};
+      const filteredSchemas = {};
+
+      function collectSchemaRecursively(refName) {
+        if (filteredSchemas[refName] || !allSchemas[refName]) return;
+        filteredSchemas[refName] = allSchemas[refName];
+
+        const nestedRefs = findRefs(allSchemas[refName]);
+        nestedRefs.forEach(r => {
+          const name = r.replace('#/components/schemas/', '');
+          collectSchemaRecursively(name);
+        });
+      }
+
+      usedRefs.forEach(fullRef => {
+        const name = fullRef.replace('#/components/schemas/', '');
+        collectSchemaRecursively(name);
       });
 
       const subsetSpec = {
         openapi: fullSpec.openapi,
         info: fullSpec.info,
+        servers: [{ url: domain }],
         paths: selectedPaths,
         components: {
-          schemas: fullSpec.components?.schemas || {}
+          schemas: filteredSchemas
         }
       };
 
@@ -104,8 +138,31 @@
       URL.revokeObjectURL(a.href);
     }
 
-    function selectAll(checked) {
-      document.querySelectorAll('.api-checkbox').forEach(cb => cb.checked = checked);
+    function collectRefsFromOperation(op, usedRefs) {
+      const jsonStr = JSON.stringify(op);
+      const matches = jsonStr.match(/"\$ref":\s*"(#\/components\/schemas\/[^"]+)"/g);
+      if (matches) {
+        matches.forEach(m => {
+          const ref = m.match(/"(#\/components\/schemas\/[^"]+)"/)[1];
+          usedRefs.add(ref);
+        });
+      }
+    }
+
+    function findRefs(obj) {
+      const refs = [];
+      function recurse(o) {
+        if (typeof o !== 'object' || o === null) return;
+        for (const k in o) {
+          if (k === '$ref' && typeof o[k] === 'string' && o[k].startsWith('#/components/schemas/')) {
+            refs.push(o[k]);
+          } else {
+            recurse(o[k]);
+          }
+        }
+      }
+      recurse(obj);
+      return refs;
     }
   </script>
 </body>
