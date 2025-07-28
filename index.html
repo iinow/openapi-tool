@@ -128,7 +128,8 @@
   });
 
   const subsetSpec = {
-    openapi: fullSpec.openapi,
+    "swagger": "2.0",
+    // openapi: fullSpec.openapi,
     info: fullSpec.info,
     servers: [{ url: domain }],
     paths: selectedPaths,
