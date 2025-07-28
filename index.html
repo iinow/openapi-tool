@@ -154,9 +154,18 @@ function generateSubset() {
   const subsetSpec = getSubsetSpec();
   if (!subsetSpec) return;
 
-  const blob = new Blob([JSON.stringify(subsetSpec, null, 2)], { type: 'application/json' });
-  const formData = new FormData();
-  formData.append('swagger', blob, 'subset-swagger.json');
+  // const blob = new Blob([JSON.stringify(subsetSpec, null, 2)], { type: 'application/json' });
+  // const formData = new FormData();
+  // formData.append('swagger', blob, 'subset-swagger.json');
+
+      const file = new File(
+  [JSON.stringify(subsetSpec, null, 2)],
+  'subset-swagger.json',
+  { type: 'application/json' }
+);
+
+const formData = new FormData();
+formData.append('swagger', file);
 
   try {
     const res = await fetch('https://146.56.38.67:9999/api/generate-redoc', {
