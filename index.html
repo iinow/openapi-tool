@@ -22,6 +22,7 @@
     <button onclick="selectAll(true)">전체 선택</button>
     <button onclick="selectAll(false)">전체 해제</button>
     <button onclick="generateSubset()">✅ 선택된 API로 Swagger 생성</button>
+    <button onclick="generateRedoc()">📄 Redoc으로 다운받기</button>
   </div>
 
   <div id="apiList"></div>
@@ -78,65 +79,110 @@
       document.querySelectorAll('.api-checkbox').forEach(cb => cb.checked = checked);
     }
 
-    function generateSubset() {
-      if (!fullSpec) return alert('Swagger 파일을 먼저 업로드하세요.');
+    function getSubsetSpec() {
+  if (!fullSpec) {
+    alert('Swagger 파일을 먼저 업로드하세요.');
+    return null;
+  }
 
-      const domain = document.getElementById('domainInput').value.trim();
-      if (!domain) return alert('도메인(서버 URL)을 입력해주세요.');
+  const domain = document.getElementById('domainInput').value.trim();
+  if (!domain) {
+    alert('도메인(서버 URL)을 입력해주세요.');
+    return null;
+  }
 
-      const checkboxes = document.querySelectorAll('.api-checkbox');
-      const selectedPaths = {};
-      const usedRefs = new Set();
+  const checkboxes = document.querySelectorAll('.api-checkbox');
+  const selectedPaths = {};
+  const usedRefs = new Set();
 
-      checkboxes.forEach(cb => {
-        if (cb.checked) {
-          const path = cb.dataset.path;
-          const method = cb.dataset.method;
-          const op = fullSpec.paths[path][method];
+  checkboxes.forEach(cb => {
+    if (cb.checked) {
+      const path = cb.dataset.path;
+      const method = cb.dataset.method;
+      const op = fullSpec.paths[path][method];
 
-          if (!selectedPaths[path]) selectedPaths[path] = {};
-          selectedPaths[path][method] = op;
+      if (!selectedPaths[path]) selectedPaths[path] = {};
+      selectedPaths[path][method] = op;
 
-          collectRefsFromOperation(op, usedRefs);
-        }
-      });
-
-      const allSchemas = fullSpec.components?.schemas || {};
-      const filteredSchemas = {};
-
-      function collectSchemaRecursively(refName) {
-        if (filteredSchemas[refName] || !allSchemas[refName]) return;
-        filteredSchemas[refName] = allSchemas[refName];
-
-        const nestedRefs = findRefs(allSchemas[refName]);
-        nestedRefs.forEach(r => {
-          const name = r.replace('#/components/schemas/', '');
-          collectSchemaRecursively(name);
-        });
-      }
-
-      usedRefs.forEach(fullRef => {
-        const name = fullRef.replace('#/components/schemas/', '');
-        collectSchemaRecursively(name);
-      });
-
-      const subsetSpec = {
-        openapi: fullSpec.openapi,
-        info: fullSpec.info,
-        servers: [{ url: domain }],
-        paths: selectedPaths,
-        components: {
-          schemas: filteredSchemas
-        }
-      };
-
-      const blob = new Blob([JSON.stringify(subsetSpec, null, 2)], { type: 'application/json' });
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = 'subset-swagger.json';
-      a.click();
-      URL.revokeObjectURL(a.href);
+      collectRefsFromOperation(op, usedRefs);
     }
+  });
+
+  const allSchemas = fullSpec.components?.schemas || {};
+  const filteredSchemas = {};
+
+  function collectSchemaRecursively(refName) {
+    if (filteredSchemas[refName] || !allSchemas[refName]) return;
+    filteredSchemas[refName] = allSchemas[refName];
+
+    const nestedRefs = findRefs(allSchemas[refName]);
+    nestedRefs.forEach(r => {
+      const name = r.replace('#/components/schemas/', '');
+      collectSchemaRecursively(name);
+    });
+  }
+
+  usedRefs.forEach(fullRef => {
+    const name = fullRef.replace('#/components/schemas/', '');
+    collectSchemaRecursively(name);
+  });
+
+  const subsetSpec = {
+    openapi: fullSpec.openapi,
+    info: fullSpec.info,
+    servers: [{ url: domain }],
+    paths: selectedPaths,
+    components: { schemas: filteredSchemas }
+  };
+
+  return subsetSpec;
+}
+
+function generateSubset() {
+  const subsetSpec = getSubsetSpec();
+  if (!subsetSpec) return;
+
+  const blob = new Blob([JSON.stringify(subsetSpec, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'subset-swagger.json';
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+    async function generateRedoc() {
+  const subsetSpec = getSubsetSpec();
+  if (!subsetSpec) return;
+
+  const blob = new Blob([JSON.stringify(subsetSpec, null, 2)], { type: 'application/json' });
+  const formData = new FormData();
+  formData.append('swagger', blob, 'subset-swagger.json');
+
+  try {
+    const res = await fetch('http://146.56.38.67:9999/api/generate-redoc', {
+      method: 'POST',
+      body: formData
+    });
+
+    if (!res.ok) throw new Error(`서버 오류: ${res.status}`);
+
+    const html = await res.text();
+    const htmlBlob = new Blob([html], { type: 'text/html' });
+    const url = URL.createObjectURL(htmlBlob);
+
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'redoc.html';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+  } catch (err) {
+    console.error('Redoc 생성 실패:', err);
+    alert('Redoc 생성 중 오류 발생');
+  }
+}
 
     function collectRefsFromOperation(op, usedRefs) {
       const jsonStr = JSON.stringify(op);
