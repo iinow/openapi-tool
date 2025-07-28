@@ -159,7 +159,7 @@ function generateSubset() {
   formData.append('swagger', blob, 'subset-swagger.json');
 
   try {
-    const res = await fetch('http://146.56.38.67:9999/api/generate-redoc', {
+    const res = await fetch('https://146.56.38.67:9999/api/generate-redoc', {
       method: 'POST',
       body: formData
     });
