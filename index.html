@@ -1,226 +1,409 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-  <meta charset="UTF-8">
-  <title>Swagger Subset Generator</title>
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <style>
-    body { font-family: sans-serif; padding: 1rem; }
-    .tag { margin-top: 1rem; }
-    .method { color: darkblue; font-weight: bold; }
-    .path { font-family: monospace; color: green; }
-    .btn-row { margin-bottom: 1rem; }
-    button { margin-right: 0.5rem; margin-top: 0.5rem; }
-    input[type="text"] { padding: 4px; margin-right: 1rem; width: 300px; }
-  </style>
+    <meta charset="UTF-8">
+    <title>Swagger Subset Generator</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body {
+            font-family: sans-serif;
+            padding: 1rem;
+        }
+
+        .tag {
+            margin-top: 1rem;
+        }
+
+        .method {
+            color: darkblue;
+            font-weight: bold;
+        }
+
+        .path {
+            font-family: monospace;
+            color: green;
+        }
+
+        .btn-row {
+            margin-bottom: 1rem;
+        }
+
+        button {
+            margin-right: 0.5rem;
+            margin-top: 0.5rem;
+        }
+
+        input[type="text"] {
+            padding: 4px;
+            margin-right: 1rem;
+            width: 300px;
+        }
+    </style>
 </head>
 <body>
-  <h2>Swagger JSON 서브셋 생성기</h2>
+<h2>Swagger JSON 서브셋 생성기</h2>
 
-  <div class="btn-row">
+<div class="btn-row">
     <input type="file" id="fileInput" accept=".json">
     <input type="text" id="domainInput" placeholder="예: https://api.example.com">
     <button onclick="selectAll(true)">전체 선택</button>
     <button onclick="selectAll(false)">전체 해제</button>
     <button onclick="generateSubset()">✅ 선택된 API로 Swagger 생성</button>
     <button onclick="generateRedoc()">📄 Redoc으로 다운받기</button>
-  </div>
+    <button onclick="generatePDF()">📄 PDF 로 다운받기</button>
+</div>
 
-  <div id="apiList"></div>
+<div id="apiList"></div>
 
-  <script>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/html2pdf.js/dist/html2pdf.bundle.min.js"></script>
+<script src="src/openapi.js"></script>
+<script>
     let fullSpec = null;
     let apiMap = {};
 
     document.getElementById('fileInput').addEventListener('change', async function () {
-      const file = this.files[0];
-      const text = await file.text();
-      fullSpec = JSON.parse(text);
-      buildApiList(fullSpec);
+        const file = this.files[0];
+        const text = await file.text();
+        fullSpec = JSON.parse(text);
+        buildApiList(fullSpec);
     });
 
     function buildApiList(spec) {
-      apiMap = {};
-      const container = document.getElementById('apiList');
-      container.innerHTML = '';
+        apiMap = {};
+        const container = document.getElementById('apiList');
+        container.innerHTML = '';
 
-      for (const path in spec.paths) {
-        for (const method in spec.paths[path]) {
-          const op = spec.paths[path][method];
-          const tags = op.tags || ['default'];
-          tags.forEach(tag => {
-            if (!apiMap[tag]) apiMap[tag] = [];
-            apiMap[tag].push({ path, method, operationId: op.operationId });
-          });
+        for (const path in spec.paths) {
+            for (const method in spec.paths[path]) {
+                const op = spec.paths[path][method];
+                const tags = op.tags || ['default'];
+                tags.forEach(tag => {
+                    if (!apiMap[tag]) apiMap[tag] = [];
+                    apiMap[tag].push({path, method, operationId: op.operationId});
+                });
+            }
         }
-      }
 
-      for (const tag in apiMap) {
-        const section = document.createElement('div');
-        section.className = 'tag';
-        section.innerHTML = `<h3>${tag}</h3>`;
+        for (const tag in apiMap) {
+            const section = document.createElement('div');
+            section.className = 'tag';
+            section.innerHTML = `<h3>${tag}</h3>`;
 
-        apiMap[tag].forEach(api => {
-          const checkbox = `<input type="checkbox" class="api-checkbox" data-path="${api.path}" data-method="${api.method}">`;
+            apiMap[tag].forEach(api => {
+                const checkbox = `<input type="checkbox" class="api-checkbox" data-path="${api.path}" data-method="${api.method}">`;
 
-          section.innerHTML += `
+                section.innerHTML += `
             <div>
               ${checkbox}
               <span class="method">${api.method.toUpperCase()}</span>
               <span class="path">${api.path}</span>
             </div>
           `;
-        });
+            });
 
-        container.appendChild(section);
-      }
+            container.appendChild(section);
+        }
     }
 
     function selectAll(checked) {
-      document.querySelectorAll('.api-checkbox').forEach(cb => cb.checked = checked);
+        document.querySelectorAll('.api-checkbox').forEach(cb => cb.checked = checked);
     }
 
+    /**
+     * 선택된 API와 도메인으로 서브셋 Swagger JSON 생성
+     * @returns {{swagger: string, info: *, servers: [{url: (*|string)}], paths: {}, components: {schemas: {}}}|null}
+     */
     function getSubsetSpec() {
-  if (!fullSpec) {
-    alert('Swagger 파일을 먼저 업로드하세요.');
-    return null;
-  }
+        if (!fullSpec) {
+            alert('Swagger 파일을 먼저 업로드하세요.');
+            return null;
+        }
 
-  const domain = document.getElementById('domainInput').value.trim();
-  if (!domain) {
-    alert('도메인(서버 URL)을 입력해주세요.');
-    return null;
-  }
+        const domain = document.getElementById('domainInput').value.trim();
+        if (!domain) {
+            alert('도메인(서버 URL)을 입력해주세요.');
+            return null;
+        }
 
-  const checkboxes = document.querySelectorAll('.api-checkbox');
-  const selectedPaths = {};
-  const usedRefs = new Set();
+        const checkboxes = document.querySelectorAll('.api-checkbox');
+        const selectedPaths = {};
+        const usedRefs = new Set();
 
-  checkboxes.forEach(cb => {
-    if (cb.checked) {
-      const path = cb.dataset.path;
-      const method = cb.dataset.method;
-      const op = fullSpec.paths[path][method];
+        checkboxes.forEach(cb => {
+            if (cb.checked) {
+                const path = cb.dataset.path;
+                const method = cb.dataset.method;
+                const op = fullSpec.paths[path][method];
 
-      if (!selectedPaths[path]) selectedPaths[path] = {};
-      selectedPaths[path][method] = op;
+                if (!selectedPaths[path]) selectedPaths[path] = {};
+                selectedPaths[path][method] = op;
 
-      collectRefsFromOperation(op, usedRefs);
+                collectRefsFromOperation(op, usedRefs);
+            }
+        });
+
+        const allSchemas = fullSpec.components?.schemas || {};
+        const filteredSchemas = {};
+
+        function collectSchemaRecursively(refName) {
+            if (filteredSchemas[refName] || !allSchemas[refName]) return;
+            filteredSchemas[refName] = allSchemas[refName];
+
+            const nestedRefs = findRefs(allSchemas[refName]);
+            nestedRefs.forEach(r => {
+                const name = r.replace('#/components/schemas/', '');
+                collectSchemaRecursively(name);
+            });
+        }
+
+        usedRefs.forEach(fullRef => {
+            const name = fullRef.replace('#/components/schemas/', '');
+            collectSchemaRecursively(name);
+        });
+
+        const subsetSpec = {
+            "swagger": "2.0",
+            // openapi: fullSpec.openapi,
+            info: fullSpec.info,
+            servers: [{url: domain}],
+            paths: selectedPaths,
+            components: {schemas: filteredSchemas}
+        };
+
+        return subsetSpec;
     }
-  });
 
-  const allSchemas = fullSpec.components?.schemas || {};
-  const filteredSchemas = {};
+    function generateSubset() {
+        const subsetSpec = getSubsetSpec();
+        if (!subsetSpec) return;
 
-  function collectSchemaRecursively(refName) {
-    if (filteredSchemas[refName] || !allSchemas[refName]) return;
-    filteredSchemas[refName] = allSchemas[refName];
-
-    const nestedRefs = findRefs(allSchemas[refName]);
-    nestedRefs.forEach(r => {
-      const name = r.replace('#/components/schemas/', '');
-      collectSchemaRecursively(name);
-    });
-  }
-
-  usedRefs.forEach(fullRef => {
-    const name = fullRef.replace('#/components/schemas/', '');
-    collectSchemaRecursively(name);
-  });
-
-  const subsetSpec = {
-    "swagger": "2.0",
-    // openapi: fullSpec.openapi,
-    info: fullSpec.info,
-    servers: [{ url: domain }],
-    paths: selectedPaths,
-    components: { schemas: filteredSchemas }
-  };
-
-  return subsetSpec;
-}
-
-function generateSubset() {
-  const subsetSpec = getSubsetSpec();
-  if (!subsetSpec) return;
-
-  const blob = new Blob([JSON.stringify(subsetSpec, null, 2)], { type: 'application/json' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = 'subset-swagger.json';
-  a.click();
-  URL.revokeObjectURL(a.href);
-}
+        const blob = new Blob([JSON.stringify(subsetSpec, null, 2)], {type: 'application/json'});
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = 'subset-swagger.json';
+        a.click();
+        URL.revokeObjectURL(a.href);
+    }
 
     async function generateRedoc() {
-  const subsetSpec = getSubsetSpec();
-  if (!subsetSpec) return;
+        const subsetSpec = getSubsetSpec();
+        if (!subsetSpec) return;
 
-  // const blob = new Blob([JSON.stringify(subsetSpec, null, 2)], { type: 'application/json' });
-  // const formData = new FormData();
-  // formData.append('swagger', blob, 'subset-swagger.json');
+        // const blob = new Blob([JSON.stringify(subsetSpec, null, 2)], { type: 'application/json' });
+        // const formData = new FormData();
+        // formData.append('swagger', blob, 'subset-swagger.json');
 
-      const file = new File(
-  [JSON.stringify(subsetSpec, null, 2)],
-  'subset-swagger.json',
-  { type: 'application/json' }
-);
+        const file = new File(
+            [JSON.stringify(subsetSpec, null, 2)],
+            'subset-swagger.json',
+            {type: 'application/json'}
+        );
 
-const formData = new FormData();
-formData.append('swagger', file);
+        const formData = new FormData();
+        formData.append('swagger', file);
 
-  try {
-    const res = await fetch('https://146.56.38.67:9999/api/generate-redoc', {
-      method: 'POST',
-      body: formData
-    });
+        try {
+            const res = await fetch('https://146.56.38.67:9999/api/generate-redoc', {
+                method: 'POST',
+                body: formData
+            });
 
-    if (!res.ok) throw new Error(`서버 오류: ${res.status}`);
+            if (!res.ok) throw new Error(`서버 오류: ${res.status}`);
 
-    const html = await res.text();
-    const htmlBlob = new Blob([html], { type: 'text/html' });
-    const url = URL.createObjectURL(htmlBlob);
+            const html = await res.text();
+            const htmlBlob = new Blob([html], {type: 'text/html'});
+            const url = URL.createObjectURL(htmlBlob);
 
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'redoc.html';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'redoc.html';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
 
-  } catch (err) {
-    console.error('Redoc 생성 실패:', err);
-    alert('Redoc 생성 중 오류 발생');
-  }
-}
+        } catch (err) {
+            console.error('Redoc 생성 실패:', err);
+            alert('Redoc 생성 중 오류 발생');
+        }
+    }
+
+    function createPDF(markdownString) {
+        // marked로 마크다운을 HTML로 변환
+        const htmlContent = marked.parse(markdownString);
+
+        // HTML 템플릿 생성
+        const template = `
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Markdown PDF</title>
+    <style>
+        /* GitHub 스타일 CSS */
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+            font-size: 16px;
+            line-height: 1.5;
+            word-wrap: break-word;
+            padding: 45px;
+            max-width: 900px;
+            margin: 0 auto;
+        }
+
+        h1, h2 {
+            padding-bottom: 0.3em;
+            border-bottom: 1px solid #eaecef;
+        }
+
+        /* 테이블 스타일 */
+        table {
+            border-spacing: 0;
+            border-collapse: collapse;
+            margin-top: 0;
+            margin-bottom: 16px;
+            width: 100%;
+        }
+
+        table th, table td {
+            padding: 6px 13px;
+            border: 1px solid #dfe2e5;
+        }
+
+        table th {
+            font-weight: 600;
+            background-color: #f6f8fa;
+        }
+
+        /* 코드 블록 스타일 */
+        pre {
+            padding: 16px;
+            overflow: auto;
+            font-size: 85%;
+            line-height: 1.45;
+            background-color: #f6f8fa;
+            border-radius: 3px;
+        }
+
+        code {
+            padding: 0.2em 0.4em;
+            margin: 0;
+            font-size: 85%;
+            background-color: rgba(27,31,35,0.05);
+            border-radius: 3px;
+            font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, Courier, monospace;
+        }
+
+        /* 인용구 스타일 */
+        blockquote {
+            padding: 0 1em;
+            color: #6a737d;
+            border-left: 0.25em solid #dfe2e5;
+            margin: 0;
+        }
+
+        /* 구분선 스타일 */
+        hr {
+            height: 0.25em;
+            padding: 0;
+            margin: 24px 0;
+            background-color: #e1e4e8;
+            border: 0;
+        }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/json-pretty-html@1.1.6/dist/bundle.min.js"><\/script>
+    <link href="https://cdn.jsdelivr.net/npm/json-pretty-html@1.1.6/style.min.css" rel="stylesheet">
+    </head>
+    <body>
+        ${htmlContent}
+    <script src="https://cdn.jsdelivr.net/npm/html2pdf.js/dist/html2pdf.bundle.min.js"><\/script>
+    <script>
+        const opt = {
+            margin: [10, 10],
+            filename: 'document.pdf',
+            image: { type: 'jpeg', quality: 0.98 },
+            html2canvas: { scale: 2 },
+            jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+        };
+
+        // PDF 생성 및 다운로드
+        html2pdf().set(opt).from(document.body).save();
+    <\/script>
+    <\/body>
+    <\/html>`;
+
+        return template;
+    }
+
+    /**
+     * PDF 생성
+     * @returns {Promise<void>}
+     */
+    async function generatePDF() {
+        const subsetSpec = getSubsetSpec();
+        if (!subsetSpec) return;
+
+        const markdownString = convertToMarkdown(subsetSpec);
+
+        const htmlContent = createPDF(markdownString);
+
+        // Create a temporary div to hold the HTML content
+        const tempDiv = document.createElement('div');
+        tempDiv.className = 'pdf-content';
+        tempDiv.innerHTML = htmlContent;
+        tempDiv.style.padding = '20px';
+        document.body.appendChild(tempDiv);
+
+        try {
+            // Configure html2pdf options
+            const options = {
+                margin: 10,
+                filename: 'api-documentation.pdf',
+                image: {type: 'jpeg', quality: 0.98},
+                html2canvas: {scale: 2},
+                jsPDF: {unit: 'mm', format: 'a4', orientation: 'portrait'}
+            };
+
+            // Generate and download the PDF
+            await html2pdf().from(tempDiv).set(options).save();
+        } catch (error) {
+            console.error('PDF 생성 중 오류 발생:', error);
+            alert('PDF 생성 중 오류가 발생했습니다.');
+        } finally {
+            // Clean up the temporary div
+            document.body.removeChild(tempDiv);
+        }
+    }
 
     function collectRefsFromOperation(op, usedRefs) {
-      const jsonStr = JSON.stringify(op);
-      const matches = jsonStr.match(/"\$ref":\s*"(#\/components\/schemas\/[^"]+)"/g);
-      if (matches) {
-        matches.forEach(m => {
-          const ref = m.match(/"(#\/components\/schemas\/[^"]+)"/)[1];
-          usedRefs.add(ref);
-        });
-      }
+        const jsonStr = JSON.stringify(op);
+        const matches = jsonStr.match(/"\$ref":\s*"(#\/components\/schemas\/[^"]+)"/g);
+        if (matches) {
+            matches.forEach(m => {
+                const ref = m.match(/"(#\/components\/schemas\/[^"]+)"/)[1];
+                usedRefs.add(ref);
+            });
+        }
     }
 
     function findRefs(obj) {
-      const refs = [];
-      function recurse(o) {
-        if (typeof o !== 'object' || o === null) return;
-        for (const k in o) {
-          if (k === '$ref' && typeof o[k] === 'string' && o[k].startsWith('#/components/schemas/')) {
-            refs.push(o[k]);
-          } else {
-            recurse(o[k]);
-          }
+        const refs = [];
+
+        function recurse(o) {
+            if (typeof o !== 'object' || o === null) return;
+            for (const k in o) {
+                if (k === '$ref' && typeof o[k] === 'string' && o[k].startsWith('#/components/schemas/')) {
+                    refs.push(o[k]);
+                } else {
+                    recurse(o[k]);
+                }
+            }
         }
-      }
-      recurse(obj);
-      return refs;
+
+        recurse(obj);
+        return refs;
     }
-  </script>
+</script>
 </body>
 </html>
