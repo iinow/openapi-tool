@@ -328,6 +328,11 @@
                 <span class="material-icons">picture_as_pdf</span>
                 PDF로 다운받기
             </button>
+
+            <button onclick="openapi2markdown()" class="btn">
+                <span class="material-icons">markdown</span>
+                Markdown으로 다운받기
+            </button>
         </div>
     </div>
 
@@ -337,6 +342,7 @@
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/html2pdf.js/dist/html2pdf.bundle.min.js"></script>
 <script src="src/openapi.js"></script>
+<script src="src/openapi2markdown.js"></script>
 <script>
     let fullSpec = null;
     let apiMap = {};
@@ -490,7 +496,8 @@
         });
 
         const subsetSpec = {
-            "swagger": "2.0",
+            // "swagger": "2.0",
+            "openapi": "3.0.1",
             // openapi: fullSpec.openapi,
             info: fullSpec.info,
             servers: [{url: domain}],
@@ -767,6 +774,36 @@
             // Clean up the temporary div
             document.body.removeChild(tempDiv);
         }
+    }
+
+    function downloadMarkdown(content) {
+        // Blob 객체 생성 (MIME 타입은 text/markdown)
+        const blob = new Blob([content], { type: "text/markdown" });
+        
+        // Blob을 가리키는 URL 생성
+        const url = URL.createObjectURL(blob);
+        
+        // 임시 <a> 태그 생성
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "test.md"; // 다운로드 파일 이름
+        
+        // 클릭 이벤트로 다운로드 트리거
+        document.body.appendChild(a);
+        a.click();
+        
+        // cleanup
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    }
+
+    async function openapi2markdown(spec) {
+        const subsetSpec = getSubsetSpec();
+        if (!subsetSpec) return;
+
+        const markdownString = convertToMarkdown(subsetSpec);
+
+        downloadMarkdown(markdownString)
     }
 
     function collectRefsFromOperation(op, usedRefs) {
